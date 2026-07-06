@@ -13,7 +13,7 @@ import (
 )
 
 // JSONB type for working with JSON fields in PostgreSQL
-type JSONB map[string]any
+type JSONB map[string]string
 
 func (j *JSONB) Scan(value any) error {
 	if value == nil {
@@ -67,4 +67,10 @@ func ConnectDB(dbURL string) (*sqlx.DB, error) {
 	}
 
 	return db, nil
+}
+
+func GetTaskById(db *sqlx.DB, task_id uuid.UUID) (Task, error) {
+	var task Task
+	err := db.Get(&task, "select id, user_id, url, method, headers, body, status, attempt_count, max_attempts, result, created_at, updated_at from tasks where id = $1", task_id)
+	return task, err
 }
