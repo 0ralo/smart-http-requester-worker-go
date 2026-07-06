@@ -1,91 +1,50 @@
 package main
 
 import (
-	"database/sql/driver"
-	"encoding/json"
-	"fmt"
 	"log"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
 
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"0ralo.website/m/config"
+	"0ralo.website/m/db"
+	"0ralo.website/m/rmq"
 )
 
-type JSONB map[string]any
-
-func (j *JSONB) Scan(value any) error {
-	if value == nil {
-		*j = nil
-		return nil
-	}
-
-	bytes, ok := value.([]byte)
-	if !ok {
-		return fmt.Errorf("invalid type for JSONB")
-	}
-
-	return json.Unmarshal(bytes, j)
-}
-
-func (j JSONB) Value() (driver.Value, error) {
-	if j == nil {
-		return nil, nil
-	}
-	return json.Marshal(j)
-}
-
-type Task struct {
-	ID           uuid.UUID  `db:"id"`
-	UserID       *int       `db:"user_id"` // nullable
-	URL          string     `db:"url"`
-	Method       string     `db:"method"`
-	Headers      JSONB      `db:"headers"`
-	Result       JSONB      `db:"result"`
-	Body         *string    `db:"body"` // nullable
-	Status       string     `db:"status"`
-	AttemptCount int        `db:"attempt_count"`
-	MaxAttempts  int        `db:"max_attempts"`
-	CreatedAt    *time.Time `db:"created_at"`
-	UpdatedAt    *time.Time `db:"updated_at"`
-}
-
 func main() {
-	db, err := sqlx.Connect("postgres", "postgresql://dev:dev@127.0.0.1:5432/development?sslmode=disable")
-	if err != nil {
-		log.Fatal("Error while connecting to databse %v", err)
-		os.Exit(-1)
-	}
-	defer db.Close()
+	// Load configuration
+	cfg := config.LoadConfig()
 
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	// Connect to database
+	database, err := db.ConnectDB(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal("Error while connecting to rmq")
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer conn.Close()
+	defer database.Close()
+	log.Println("✓ Connected to database")
 
-	ch, err := conn.Channel()
+	// Connect to RabbitMQ
+	rmqConn, err := rmq.ConnectRMQ(cfg.RMQUrl, cfg.RMQQueue, cfg.RMQConsumer)
 	if err != nil {
-		log.Fatal("Error while getting channel")
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
-	defer ch.Close()
-	msgs, err := ch.Consume(
-		"tasks.queue",
-		"go-consumer", // consumer
-		true,          // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
-	)
-	if err != nil {
-		log.Fatal("Error while getting consume thing")
-	}
+	defer rmqConn.Close()
+	log.Println("✓ Connected to RabbitMQ")
 
-	for d := range msgs {
-		log.Printf(" [x] %s", d.Body)
-	}
+	// Handle graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Process messages from RabbitMQ queue
+	log.Println("✓ Listening for messages...")
+	for {
+		select {
+		case d := <-rmqConn.Msgs:
+			log.Printf("[x] Received message: %s", d.Body)
+			// TODO: Implement task processing logic here
+		case sig := <-sigChan:
+			log.Printf("Received signal: %v", sig)
+			return
+		}
+	}
 }
