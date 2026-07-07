@@ -17,11 +17,11 @@ import (
 
 	"maps"
 
-	"0ralo.website/m/config"
-	"0ralo.website/m/db"
-	"0ralo.website/m/rmq"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"oralo.website/m/config"
+	"oralo.website/m/db"
+	"oralo.website/m/rmq"
 )
 
 func process_message(conn *sqlx.DB, data []byte) ([]byte, error, *uuid.UUID) {

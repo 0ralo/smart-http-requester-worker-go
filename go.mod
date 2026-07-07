@@ -1,4 +1,4 @@
-module 0ralo.website/m
+module oralo.website/m
 
 go 1.26.4
 

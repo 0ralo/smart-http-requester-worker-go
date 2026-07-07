@@ -7,9 +7,9 @@ import (
 
 	"math"
 
-	"0ralo.website/m/db"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"oralo.website/m/db"
 )
 
 // Connection struct for managing RabbitMQ connections
