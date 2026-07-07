@@ -1,96 +1,124 @@
 # Smart HTTP Requester Worker (Go)
 
-Рабочий процесс обработки задач HTTP запросов из RabbitMQ очереди с сохранением результатов в PostgreSQL.
+A worker for processing HTTP tasks from a RabbitMQ queue. It consumes tasks, sends HTTP requests, stores results in PostgreSQL, and manages retry and failed-task handling.
 
-## Структура проекта
+## Overview
 
-```
+This service is the Go implementation of the worker component in the Smart HTTP Requester system. Its purpose is to receive queued tasks, execute requests against external HTTP endpoints, and persist the outcome in a database.
+
+## Features
+
+- consume tasks from RabbitMQ;
+- execute HTTP requests with GET, POST, PUT, PATCH, and DELETE methods;
+- pass request headers and body;
+- store execution results in PostgreSQL;
+- update attempt counters and forward tasks to retry or failed queues;
+- shut down gracefully on SIGINT and SIGTERM.
+
+## How it works
+
+1. The worker reads configuration from environment variables or a .env file.
+2. It connects to PostgreSQL and RabbitMQ.
+3. It starts listening to the task queue.
+4. For each message:
+   - it extracts the task identifier;
+   - loads the task from the database;
+   - performs the HTTP request;
+   - saves the result or reschedules the task for retry.
+
+## Architecture
+
+The project is organized into several modules:
+
+- config — configuration loading;
+- db — PostgreSQL access and task models;
+- rmq — RabbitMQ connection and retry/failed queue handling;
+- main.go — entry point and message processing loop.
+
+## Project structure
+
+```text
 .
-├── config/          # Модуль конфигурации
-│   └── config.go   # Загрузка параметров из .env
-├── db/              # Модуль работы с базой данных
-│   └── db.go       # Подключение к PostgreSQL, типы данных
-├── rmq/             # Модуль работы с RabbitMQ
-│   └── rmq.go      # Подключение к RMQ, управление потреблением
-├── main.go          # Главный файл с основной логикой
-├── go.mod          # Модуль Go
-├── go.sum          # Хеши зависимостей
-└── .env.example    # Пример переменных окружения
+├── config/
+│   └── config.go
+├── db/
+│   └── db.go
+├── rmq/
+│   └── rmq.go
+├── main.go
+├── go.mod
+├── go.sum
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
-## Модули
+## Requirements
 
-### config/config.go
-Загружает конфигурацию из файла `.env` или переменных окружения.
+- Go 1.26+
+- PostgreSQL
+- RabbitMQ
 
-**Переменные окружения:**
-- `DATABASE_URL` - строка подключения к PostgreSQL
-- `RMQ_URL` - URL подключения к RabbitMQ
-- `RMQ_QUEUE` - имя очереди RabbitMQ
-- `RMQ_CONSUMER` - имя потребителя
+## Configuration
 
-**Значения по умолчанию:**
-- БД: `postgresql://dev:dev@127.0.0.1:5432/development?sslmode=disable`
-- RMQ: `amqp://guest:guest@localhost:5672/`
-- Очередь: `tasks.queue`
-- Потребитель: `go-consumer`
+Copy the example configuration file:
 
-### db/db.go
-Содержит типы данных и функции для работы с БД:
-
-- **JSONB** - тип для работы с JSON полями PostgreSQL
-- **Task** - структура задачи HTTP запроса
-- **ConnectDB()** - подключение к БД с проверкой соединения
-
-### rmq/rmq.go
-Содержит логику работы с RabbitMQ:
-
-- **Connection** - структура для управления соединением с RMQ
-- **ConnectRMQ()** - подключение к RMQ и инициализация потребителя
-- **Close()** - корректное закрытие соединения
-
-### main.go
-Главная программа с основной логикой:
-
-1. Загрузка конфигурации
-2. Подключение к базе данных
-3. Подключение к RabbitMQ
-4. Цикл обработки сообщений из очереди
-5. Graceful shutdown при SIGINT/SIGTERM
-
-## Использование
-
-### Подготовка конфигурации
-
-1. Скопируйте пример конфигурации:
 ```bash
 cp .env.example .env
 ```
 
-2. Отредактируйте `.env` с вашими параметрами подключения
+The following environment variables are supported:
 
-### Запуск
+- DATABASE_URL — PostgreSQL connection string;
+- RMQ_URL — RabbitMQ address;
+- RMQ_QUEUE — task queue name;
+- RMQ_CONSUMER — consumer name.
+
+Example:
+
+```env
+DATABASE_URL=postgresql://dev:dev@127.0.0.1:5432/development?sslmode=disable
+RMQ_URL=amqp://guest:guest@localhost:5672/
+RMQ_QUEUE=tasks.queue
+RMQ_CONSUMER=go-consumer
+```
+
+## Running
+
+Install dependencies:
+
+```bash
+go mod download
+```
+
+Run the application:
+
+```bash
+go run .
+```
+
+Or build a binary:
 
 ```bash
 go build -o worker
 ./worker
 ```
 
-Или прямо:
-```bash
-go run main.go
-```
+## Dependencies
 
-## Зависимости
+The project uses:
 
-- `github.com/joho/godotenv` - загрузка .env файлов
-- `github.com/jmoiron/sqlx` - работа с БД
-- `github.com/lib/pq` - драйвер PostgreSQL
-- `github.com/rabbitmq/amqp091-go` - клиент RabbitMQ
-- `github.com/google/uuid` - работа с UUID
+- github.com/joho/godotenv — load .env files;
+- github.com/jmoiron/sqlx — convenient PostgreSQL access;
+- github.com/lib/pq — PostgreSQL driver;
+- github.com/rabbitmq/amqp091-go — RabbitMQ client;
+- github.com/google/uuid — UUID handling.
 
-## Развитие
+## Future improvements
 
-Основная логика обработки задач должна быть реализована в:
-- `main.go` в блоке `case d := <-rmqConn.Msgs:`
-- Рекомендуется создать отдельный модуль для обработки (например, `handler/handler.go`)
+Possible follow-up improvements include:
+
+- extracting the processing logic into a dedicated package;
+- reusing a shared HTTP client;
+- more structured logging and metrics;
+- test coverage for the main processing flows.
