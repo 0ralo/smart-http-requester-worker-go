@@ -24,23 +24,23 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func process_message(conn *sqlx.DB, data []byte) ([]byte, error) {
+func process_message(conn *sqlx.DB, data []byte) ([]byte, error, *uuid.UUID) {
 	uid, err := get_uid_from_payload(data)
 	if err != nil {
-		return nil, err
+		return nil, err, nil
 	}
 	task, err := db.GetTaskById(conn, *uid)
 	if err != nil {
-		return nil, err
+		return nil, err, uid
 	}
 	if task.AttemptCount == task.MaxAttempts {
-		return nil, errors.New("Attempts limit reached")
+		return nil, errors.New("Attempts limit reached"), uid
 	}
 	data, err = perform_request(task)
 	if err != nil {
-		return nil, err
+		return nil, err, uid
 	}
-	return data, nil
+	return data, nil, uid
 }
 
 func perform_request(task db.Task) ([]byte, error) {
@@ -77,12 +77,8 @@ func perform_request(task db.Task) ([]byte, error) {
 	}
 }
 
-type TaskRMQ struct {
-	TaskId uuid.UUID `json:"task_id"`
-}
-
 func get_uid_from_payload(data []byte) (*uuid.UUID, error) {
-	var task TaskRMQ
+	var task rmq.TaskRMQ
 	err := json.Unmarshal(data, &task)
 	if err != nil {
 		log.Println("Cannot unmarshal rmq task")
@@ -130,11 +126,24 @@ func main() {
 				defer func() {
 					<-sem
 				}()
-				data, err := process_message(database, d.Body)
-				if err != nil {
-					fmt.Printf("error %v", err)
+				data, err1, task_id := process_message(database, d.Body)
+				log.Printf("Called process with task_id=%v", task_id)
+				if err1 != nil && task_id != nil {
+					task, err := db.UpdateTaskCount(database, *task_id)
+					if err != nil {
+						log.Fatalf("Cannot update counter: %v", err)
+					}
+					log.Println("Processed unsuccessful")
+					rmq.SendToRetry(rmqConn, task, err1.Error())
+				} else if err1 != nil && task_id == nil {
+					log.Printf("Cannot extract uuid from rmq payload: %v", err)
 				} else {
-					fmt.Printf("data %s", data)
+					fmt.Printf("Processed successful: %v", task_id)
+					err := db.UpdateResult(database, *task_id, string(data))
+					if err != nil {
+						log.Printf("Cannot update database after error: %v", err)
+					}
+
 				}
 			}()
 		case sig := <-sigChan:

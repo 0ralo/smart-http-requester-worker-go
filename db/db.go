@@ -74,3 +74,14 @@ func GetTaskById(db *sqlx.DB, task_id uuid.UUID) (Task, error) {
 	err := db.Get(&task, "select id, user_id, url, method, headers, body, status, attempt_count, max_attempts, result, created_at, updated_at from tasks where id = $1", task_id)
 	return task, err
 }
+
+func UpdateTaskCount(db *sqlx.DB, task_id uuid.UUID) (Task, error) {
+	var task Task
+	err := db.Get(&task, "update tasks set updated_at = now(), attempt_count = attempt_count + 1 where id = $1 returning *", task_id)
+	return task, err
+}
+
+func UpdateResult(db *sqlx.DB, task_id uuid.UUID, result string) error {
+	_, err := db.Exec("update tasks set status='done', attempt_count = attempt_count + 1, updated_at=now(), result=jsonb_build_object('result', $1::text) where id = $2", result, task_id)
+	return err
+}
